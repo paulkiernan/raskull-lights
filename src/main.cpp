@@ -3,13 +3,15 @@
 
 #define HC12Serial Serial2
 
-volatile int blinkcode = 0;
-int count = 0;
+#ifdef PRIMARY
+    const uint8_t CONTROLLER_ID = 0;
+    const uint8_t LED_DELAY = 100;
+#else
+    const uint8_t CONTROLLER_ID = 1;
+    const uint16_t LED_DELAY = 1000;
+#endif
 
-int SET_PIN = 0;
-
-int incomingByte = 0; // for incoming serial data
-int outgoingByte = 0; // for incoming serial data
+const uint8_t RF_CONTROL_PIN = 0;
 
 
 void blinkthread() {
@@ -19,40 +21,30 @@ void blinkthread() {
    */
   while (1) {
     digitalWriteFast(LED_BUILTIN, HIGH);
-    threads.delay(150);
+    threads.delay(LED_DELAY);
     digitalWriteFast(LED_BUILTIN, LOW);
-    threads.delay(150);
+    threads.delay(LED_DELAY);
     threads.yield();
   }
 }
 
 void setup() {
-  delay(1000);
+  delay(1000);  // Wait a second
+
+  // Setup threads
   pinMode(LED_BUILTIN, OUTPUT);
   threads.addThread(blinkthread);
-  pinMode(SET_PIN, OUTPUT);
 
-  Serial.begin(9600);      // Serial port to computer
-
-  digitalWrite(SET_PIN, HIGH);
-  delay(80);
+  // Setup RF module
+  pinMode(RF_CONTROL_PIN, OUTPUT);
+  digitalWrite(RF_CONTROL_PIN, HIGH);
+  delay(80);               // HC-12 documented startup time
   HC12Serial.begin(9600);  // Serial port to HC12
 
-  //HC12Serial.write("
+  // Setup debug serial to computer
+  Serial.begin(9600);      // Serial port to computer
 
 }
 
 void loop() {
-  if (HC12Serial.available()) {       // If HC-12 has data
-    incomingByte = Serial.read();
-      Serial.print("(debug) Receiving Byte: ");
-      Serial.println(incomingByte);
-      Serial.write(HC12Serial.read());  // Send the data to Serial monitor
-    }
-  if (Serial.available()) {           // If Serial monitor has data
-  outgoingByte = Serial.read();
-    Serial.print("(debug) Transmitting Byte: ");
-    Serial.println(outgoingByte);
-    HC12Serial.write(outgoingByte);      // Send that data to HC-12
-  }
 }

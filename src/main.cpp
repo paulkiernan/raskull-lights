@@ -1,8 +1,9 @@
 #include <Arduino.h>
-#include "TeensyThreads.h"
-
 #include <RHMesh.h>
 #include <RH_Serial.h>
+#include "TeensyThreads.h"
+#include "Adafruit_GFX.h"
+#include "Adafruit_SSD1306.h"
 #include "ArduinoLog.h"
 #include "freeram.h"
 
@@ -18,7 +19,9 @@
 
 #define RH_HAVE_SERIAL
 #define N_NODES 2
-int iteration_count = 0;
+volatile int iteration_count = 0;
+volatile int messages_sent = 0;
+volatile int messages_received = 0;
 const uint8_t RF_CONTROL_PIN = 2;
 
 // Mesh Network
@@ -29,6 +32,17 @@ char buf[RH_MESH_MAX_MESSAGE_LEN];   // Dont put this on the stack:
 
 uint8_t routes[N_NODES]; // full routing table for mesh
 int16_t rssi[N_NODES];   // signal strength info
+
+
+// Display Setup
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
 
 
 const __FlashStringHelper* getErrorString(uint8_t error) {
@@ -98,18 +112,57 @@ void blinkthread() {
 }
 
 
+void updateDisplay(void) {
+    while(1){
+        display.clearDisplay();
+
+        display.setTextSize(1);             // Normal 1:1 pixel scale
+        display.setTextColor(WHITE);        // Draw white text
+        display.setCursor(0,0);             // Start at top-left corner
+        display.println(F("Raskull Mesh Network"));
+        display.println();
+
+        display.setTextSize(2);             // Draw 2X-scale text
+        display.print(F("Node ID: "));
+        display.println(nodeId);
+
+        display.setTextSize(1);
+        display.println();
+        display.print("Iteration: ");
+        display.println(iteration_count);
+        display.print("Msg Sent: ");
+        display.println(messages_sent);
+        display.print("Msg Received: ");
+        display.println(messages_received);
+
+        display.display();
+        threads.delay(2000);
+        threads.yield();
+    }
+}
+
+
 void setup() {
     randomSeed(analogRead(0));
     delay(1000);  // Wait a second
 
-    // Setup logging
     Serial.begin(9600);
+    Wire.begin();
+
+    // Setup logging
     Log.begin(LOG_LEVEL_VERBOSE, &Serial);
     Log.notice("***Begin Session***");
+
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("SSD1306 allocation failed"));
+        for(;;); // Don't proceed, loop forever
+    }
 
     // Setup threads
     pinMode(LED_BUILTIN, OUTPUT);
     threads.addThread(blinkthread);
+    threads.addThread(updateDisplay);
 
     // Setup RF module
     pinMode(RF_CONTROL_PIN, OUTPUT);
@@ -156,6 +209,7 @@ void loop() {
         getRouteInfoString(buf, RH_MESH_MAX_MESSAGE_LEN);
 
         Log.verbose("Sending Message %d->%d : %s" CR, nodeId, n, buf);
+        messages_sent++;
 
         // send an acknowledged message to the target node
         uint8_t error = manager->sendtoWait((uint8_t *)buf, strlen(buf), n);
@@ -181,6 +235,7 @@ void loop() {
             if (manager->recvfromAckTimeout((uint8_t *)buf, &len, waitTime, &from)) {
                 buf[len] = '\0'; // null terminate string
                 Log.verbose("Got message: %d-> %s" CR, from, buf);
+                messages_received++;
                 // we received data from node 'from', but it may have actually come from an intermediate node
                 RHRouter::RoutingTableEntry *route = manager->getRouteTo(from);
                 if (route->next_hop != 0) {
